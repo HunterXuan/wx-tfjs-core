@@ -17,6 +17,7 @@
 
 import {NamedTensorMap} from '../tensor_types';
 import * as util from '../util';
+import {fetch} from '../mp_util';
 
 import {decodeWeights} from './io_utils';
 import {DTYPE_VALUE_SIZE_MAP, WeightsManifestConfig, WeightsManifestEntry} from './types';

@@ -26,6 +26,7 @@ import {concatenateArrayBuffers, getModelArtifactsInfoForJSON} from './io_utils'
 import {IORouter, IORouterRegistry} from './router_registry';
 import {IOHandler, ModelArtifacts, SaveResult, WeightsManifestConfig, WeightsManifestEntry} from './types';
 import {loadWeightsAsArrayBuffer} from './weights_loader';
+import {fetch} from '../mp_util';
 
 export class BrowserHTTPRequest implements IOHandler {
   protected readonly path: string|string[];

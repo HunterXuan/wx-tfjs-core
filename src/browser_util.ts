@@ -17,7 +17,7 @@
 
 const delayCallback: Function = typeof requestAnimationFrame !== 'undefined' ?
     requestAnimationFrame :  // Browsers
-    setImmediate;            // Node.js
+    setTimeout;              // Node.js or WeChat
 
 /**
  * Returns a promise that resolve when a requestAnimationFrame has completed.

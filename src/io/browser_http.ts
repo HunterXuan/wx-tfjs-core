@@ -21,15 +21,15 @@
  * Uses [`fetch`](https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API).
  */
 
-import {assert} from '../util';
-import {concatenateArrayBuffers, getModelArtifactsInfoForJSON} from './io_utils';
-import {IORouter, IORouterRegistry} from './router_registry';
-import {IOHandler, ModelArtifacts, SaveResult, WeightsManifestConfig, WeightsManifestEntry} from './types';
-import {loadWeightsAsArrayBuffer} from './weights_loader';
-import {fetch} from '../mp_util';
+import { assert } from '../util';
+import { concatenateArrayBuffers, getModelArtifactsInfoForJSON } from './io_utils';
+import { IORouter, IORouterRegistry } from './router_registry';
+import { IOHandler, ModelArtifacts, SaveResult, WeightsManifestConfig, WeightsManifestEntry } from './types';
+import { loadWeightsAsArrayBuffer } from './weights_loader';
+import { fetch } from '../mp_util';
 
 export class BrowserHTTPRequest implements IOHandler {
-  protected readonly path: string|string[];
+  protected readonly path: string | string[];
   protected readonly requestInit: RequestInit;
 
   readonly DEFAULT_METHOD = 'POST';
@@ -37,30 +37,33 @@ export class BrowserHTTPRequest implements IOHandler {
   static readonly URL_SCHEME_REGEX = /^https?:\/\//;
 
   constructor(
-      path: string|string[], requestInit?: RequestInit,
-      private readonly weightPathPrefix?: string) {
+    path: string | string[], requestInit?: RequestInit,
+    private readonly weightPathPrefix?: string) {
     if (typeof fetch === 'undefined') {
       throw new Error(
-          // tslint:disable-next-line:max-line-length
-          'browserHTTPRequest is not supported outside the web browser without a fetch polyfill.');
+        // tslint:disable-next-line:max-line-length
+        'browserHTTPRequest is not supported outside the web browser without a fetch polyfill.');
     }
 
     assert(
-        path != null && path.length > 0,
-        'URL path for browserHTTPRequest must not be null, undefined or ' +
-            'empty.');
+      path != null && path.length > 0,
+      function () {
+        return 'URL path for browserHTTPRequest must not be null, undefined or ' + 'empty.'
+      });
 
     if (Array.isArray(path)) {
       assert(
-          path.length === 2,
-          'URL paths for browserHTTPRequest must have a length of 2, ' +
-              `(actual length is ${path.length}).`);
+        path.length === 2,
+        function () {
+          return 'URL paths for browserHTTPRequest must have a length of 2, ' +
+            `(actual length is ${path.length}).`
+        });
     }
     this.path = path;
 
     if (requestInit != null && requestInit.body != null) {
       throw new Error(
-          'requestInit is expected to have no pre-existing body, but has one.');
+        'requestInit is expected to have no pre-existing body, but has one.');
     }
     this.requestInit = requestInit || {};
   }
@@ -68,11 +71,11 @@ export class BrowserHTTPRequest implements IOHandler {
   async save(modelArtifacts: ModelArtifacts): Promise<SaveResult> {
     if (modelArtifacts.modelTopology instanceof ArrayBuffer) {
       throw new Error(
-          'BrowserHTTPRequest.save() does not support saving model topology ' +
-          'in binary formats yet.');
+        'BrowserHTTPRequest.save() does not support saving model topology ' +
+        'in binary formats yet.');
     }
 
-    const init = Object.assign({method: this.DEFAULT_METHOD}, this.requestInit);
+    const init = Object.assign({ method: this.DEFAULT_METHOD }, this.requestInit);
     init.body = new FormData();
 
     const weightsManifest: WeightsManifestConfig = [{
@@ -85,18 +88,18 @@ export class BrowserHTTPRequest implements IOHandler {
     };
 
     init.body.append(
-        'model.json',
-        new Blob(
-            [JSON.stringify(modelTopologyAndWeightManifest)],
-            {type: 'application/json'}),
-        'model.json');
+      'model.json',
+      new Blob(
+        [JSON.stringify(modelTopologyAndWeightManifest)],
+        { type: 'application/json' }),
+      'model.json');
 
     if (modelArtifacts.weightData != null) {
       init.body.append(
-          'model.weights.bin',
-          new Blob(
-              [modelArtifacts.weightData], {type: 'application/octet-stream'}),
-          'model.weights.bin');
+        'model.weights.bin',
+        new Blob(
+          [modelArtifacts.weightData], { type: 'application/octet-stream' }),
+        'model.weights.bin');
     }
 
     const response = await fetch(this.path as string, init);
@@ -108,8 +111,8 @@ export class BrowserHTTPRequest implements IOHandler {
       };
     } else {
       throw new Error(
-          `BrowserHTTPRequest.save() failed due to HTTP response status ` +
-          `${response.status}.`);
+        `BrowserHTTPRequest.save() failed due to HTTP response status ` +
+        `${response.status}.`);
     }
   }
 
@@ -123,7 +126,7 @@ export class BrowserHTTPRequest implements IOHandler {
    */
   async load(): Promise<ModelArtifacts> {
     return Array.isArray(this.path) ? this.loadBinaryModel() :
-                                      this.loadJSONModel();
+      this.loadJSONModel();
   }
 
   /**
@@ -134,8 +137,8 @@ export class BrowserHTTPRequest implements IOHandler {
       const response = await fetch(this.path[0], this.requestInit);
       if (!response.ok) {
         throw new Error(
-            `BrowserHTTPRequest.load() failed due to HTTP response: ${
-                response.statusText}`);
+          `BrowserHTTPRequest.load() failed due to HTTP response: ${
+          response.statusText}`);
       }
       return await response.arrayBuffer();
     } catch (error) {
@@ -148,14 +151,14 @@ export class BrowserHTTPRequest implements IOHandler {
     const manifestPromise = await fetch(this.path[1], this.requestInit);
     if (!manifestPromise.ok) {
       throw new Error(`BrowserHTTPRequest.load() failed due to HTTP response: ${
-          manifestPromise.statusText}`);
+        manifestPromise.statusText}`);
     }
 
     const results = await Promise.all([graphPromise, manifestPromise]);
     const [modelTopology, weightsManifestResponse] = results;
 
     const weightsManifest =
-        await weightsManifestResponse.json() as WeightsManifestConfig;
+      await weightsManifestResponse.json() as WeightsManifestConfig;
 
     let weightSpecs: WeightsManifestEntry[];
     let weightData: ArrayBuffer;
@@ -164,15 +167,15 @@ export class BrowserHTTPRequest implements IOHandler {
       [weightSpecs, weightData] = results;
     }
 
-    return {modelTopology, weightSpecs, weightData};
+    return { modelTopology, weightSpecs, weightData };
   }
 
   protected async loadJSONModel(): Promise<ModelArtifacts> {
     const modelConfigRequest =
-        await fetch(this.path as string, this.requestInit);
+      await fetch(this.path as string, this.requestInit);
     if (!modelConfigRequest.ok) {
       throw new Error(`BrowserHTTPRequest.load() failed due to HTTP response: ${
-          modelConfigRequest.statusText}`);
+        modelConfigRequest.statusText}`);
     }
     const modelConfig = await modelConfigRequest.json();
     const modelTopology = modelConfig['modelTopology'];
@@ -181,24 +184,24 @@ export class BrowserHTTPRequest implements IOHandler {
     // We do not allow both modelTopology and weightsManifest to be missing.
     if (modelTopology == null && weightsManifest == null) {
       throw new Error(
-          `The JSON from HTTP path ${this.path} contains neither model ` +
-          `topology or manifest for weights.`);
+        `The JSON from HTTP path ${this.path} contains neither model ` +
+        `topology or manifest for weights.`);
     }
 
     let weightSpecs: WeightsManifestEntry[];
     let weightData: ArrayBuffer;
     if (weightsManifest != null) {
       const weightsManifest =
-          modelConfig['weightsManifest'] as WeightsManifestConfig;
+        modelConfig['weightsManifest'] as WeightsManifestConfig;
       const results = await this.loadWeights(weightsManifest);
       [weightSpecs, weightData] = results;
     }
 
-    return {modelTopology, weightSpecs, weightData};
+    return { modelTopology, weightSpecs, weightData };
   }
 
   private async loadWeights(weightsManifest: WeightsManifestConfig):
-      Promise<[WeightsManifestEntry[], ArrayBuffer]> {
+    Promise<[WeightsManifestEntry[], ArrayBuffer]> {
     const weightPath = Array.isArray(this.path) ? this.path[1] : this.path;
     const [prefix, suffix] = parseUrl(weightPath);
     const pathPrefix = this.weightPathPrefix || prefix;
@@ -218,7 +221,7 @@ export class BrowserHTTPRequest implements IOHandler {
     return [
       weightSpecs,
       concatenateArrayBuffers(
-          await loadWeightsAsArrayBuffer(fetchURLs, this.requestInit))
+        await loadWeightsAsArrayBuffer(fetchURLs, this.requestInit as any))
     ];
   }
 }
@@ -239,7 +242,7 @@ export function parseUrl(url: string): [string, string] {
   const lastSearchParam = url.lastIndexOf('?');
   const prefix = url.substring(0, lastSlash);
   const suffix =
-      lastSearchParam > lastSlash ? url.substring(lastSearchParam) : '';
+    lastSearchParam > lastSlash ? url.substring(lastSearchParam) : '';
   return [prefix + '/', suffix];
 }
 
@@ -247,7 +250,7 @@ function isHTTPScheme(url: string): boolean {
   return url.match(BrowserHTTPRequest.URL_SCHEME_REGEX) != null;
 }
 
-export const httpRequestRouter: IORouter = (url: string|string[]) => {
+export const httpRequestRouter: IORouter = (url: string | string[]) => {
   if (typeof fetch === 'undefined') {
     // browserHTTPRequest uses `fetch`, if one wants to use it in node.js
     // they have to setup a global fetch polyfill.
@@ -409,7 +412,7 @@ IORouterRegistry.registerLoadRouter(httpRequestRouter);
  * @returns An instance of `IOHandler`.
  */
 export function browserHTTPRequest(
-    path: string|string[], requestInit?: RequestInit,
-    weightPathPrefix?: string): IOHandler {
+  path: string | string[], requestInit?: RequestInit,
+  weightPathPrefix?: string): IOHandler {
   return new BrowserHTTPRequest(path, requestInit, weightPathPrefix);
 }

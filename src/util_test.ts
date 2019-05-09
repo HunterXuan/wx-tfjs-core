@@ -15,6 +15,8 @@
  * =============================================================================
  */
 
+import {ENV} from './environment';
+import {scalar, tensor2d} from './ops/ops';
 import {inferShape} from './tensor_util_env';
 import * as util from './util';
 
@@ -45,11 +47,11 @@ describe('Util', () => {
   });
 
   it('Size to squarish shape (prime number)', () => {
-    expect(util.sizeToSquarishShape(11)).toEqual([1, 11]);
+    expect(util.sizeToSquarishShape(11)).toEqual([4, 3]);
   });
 
   it('Size to squarish shape (almost square)', () => {
-    expect(util.sizeToSquarishShape(35)).toEqual([5, 7]);
+    expect(util.sizeToSquarishShape(35)).toEqual([6, 6]);
   });
 
   it('Size of 1 to squarish shape', () => {
@@ -102,6 +104,12 @@ describe('util.flatten', () => {
     expect(util.flatten([['a', ['b']], ['c', [['d']], 'e']])).toEqual([
       'a', 'b', 'c', 'd', 'e'
     ]);
+  });
+
+  it('mixed TypedArray and number[]', () => {
+    const data =
+        [new Float32Array([1, 2]), 3, [4, 5, new Float32Array([6, 7])]];
+    expect(util.flatten(data)).toEqual([1, 2, 3, 4, 5, 6, 7]);
   });
 });
 
@@ -219,6 +227,83 @@ describe('util.inferFromImplicitShape', () => {
   });
 });
 
+describe('util parseAxisParam', () => {
+  it('axis=null returns no axes for scalar', () => {
+    const axis: number = null;
+    const shape: number[] = [];
+    expect(util.parseAxisParam(axis, shape)).toEqual([]);
+  });
+
+  it('axis=null returns 0 axis for Tensor1D', () => {
+    const axis: number = null;
+    const shape = [4];
+    expect(util.parseAxisParam(axis, shape)).toEqual([0]);
+  });
+
+  it('axis=null returns all axes for Tensor3D', () => {
+    const axis: number[] = null;
+    const shape = [3, 1, 2];
+    expect(util.parseAxisParam(axis, shape)).toEqual([0, 1, 2]);
+  });
+
+  it('axis as a single number', () => {
+    const axis = 1;
+    const shape = [3, 1, 2];
+    expect(util.parseAxisParam(axis, shape)).toEqual([1]);
+  });
+
+  it('axis as single negative number', () => {
+    const axis = -1;
+    const shape = [3, 1, 2];
+    expect(util.parseAxisParam(axis, shape)).toEqual([2]);
+
+    const axis2 = -2;
+    expect(util.parseAxisParam(axis2, shape)).toEqual([1]);
+
+    const axis3 = -3;
+    expect(util.parseAxisParam(axis3, shape)).toEqual([0]);
+  });
+
+  it('axis as list of negative numbers', () => {
+    const axis = [-1, -3];
+    const shape = [3, 1, 2];
+    expect(util.parseAxisParam(axis, shape)).toEqual([2, 0]);
+  });
+
+  it('axis as list of positive numbers', () => {
+    const axis = [0, 2];
+    const shape = [3, 1, 2];
+    expect(util.parseAxisParam(axis, shape)).toEqual([0, 2]);
+  });
+
+  it('axis as combo of positive and negative numbers', () => {
+    const axis = [0, -1];
+    const shape = [3, 1, 2];
+    expect(util.parseAxisParam(axis, shape)).toEqual([0, 2]);
+  });
+
+  it('axis out of range throws error', () => {
+    const axis = -4;
+    const shape = [3, 1, 2];
+    expect(() => util.parseAxisParam(axis, shape)).toThrowError();
+
+    const axis2 = 4;
+    expect(() => util.parseAxisParam(axis2, shape)).toThrowError();
+  });
+
+  it('axis a list with one number out of range throws error', () => {
+    const axis = [0, 4];
+    const shape = [3, 1, 2];
+    expect(() => util.parseAxisParam(axis, shape)).toThrowError();
+  });
+
+  it('axis with decimal value throws error', () => {
+    const axis = 0.5;
+    const shape = [3, 1, 2];
+    expect(() => util.parseAxisParam(axis, shape)).toThrowError();
+  });
+});
+
 describe('util.squeezeShape', () => {
   it('scalar', () => {
     const {newShape, keptDims} = util.squeezeShape([]);
@@ -256,40 +341,74 @@ describe('util.squeezeShape', () => {
       expect(newShape).toEqual([1, 1, 4]);
       expect(keptDims).toEqual([0, 3, 4]);
     });
+    it('should only reduce dimensions specified by negative axis', () => {
+      const {newShape, keptDims} = util.squeezeShape([1, 1, 1, 1, 4], [-2, -3]);
+      expect(newShape).toEqual([1, 1, 4]);
+      expect(keptDims).toEqual([0, 1, 4]);
+    });
+    it('should only reduce dimensions specified by negative axis', () => {
+      const axis = [-2, -3];
+      util.squeezeShape([1, 1, 1, 1, 4], axis);
+      expect(axis).toEqual([-2, -3]);
+    });
     it('throws error when specified axis is not squeezable', () => {
       expect(() => util.squeezeShape([1, 1, 2, 1, 4], [1, 2])).toThrowError();
+    });
+    it('throws error when specified negative axis is not squeezable', () => {
+      expect(() => util.squeezeShape([1, 1, 2, 1, 4], [-1, -2])).toThrowError();
+    });
+    it('throws error when specified axis is out of range', () => {
+      expect(() => util.squeezeShape([1, 1, 2, 1, 4], [11, 22])).toThrowError();
+    });
+    it('throws error when specified negative axis is out of range', () => {
+      expect(() => util.squeezeShape([1, 1, 2, 1, 4], [
+        -11, -22
+      ])).toThrowError();
     });
   });
 });
 
-describe('util.checkComputationForNaN', () => {
+describe('util.checkComputationForErrors', () => {
   it('Float32Array has NaN', () => {
     expect(
-        () => util.checkComputationForNaN(
+        () => util.checkComputationForErrors(
             new Float32Array([1, 2, 3, NaN, 4, 255]), 'float32', ''))
+        .toThrowError();
+  });
+
+  it('Float32Array has Infinity', () => {
+    expect(
+        () => util.checkComputationForErrors(
+            new Float32Array([1, 2, 3, Infinity, 4, 255]), 'float32', ''))
         .toThrowError();
   });
 
   it('Float32Array no NaN', () => {
     // Int32 and Bool NaNs should not trigger an error.
     expect(
-        () => util.checkComputationForNaN(
+        () => util.checkComputationForErrors(
             new Float32Array([1, 2, 3, 4, -1, 255]), 'float32', ''))
         .not.toThrowError();
   });
 });
 
-describe('util.checkConversionForNaN', () => {
-  // NaN is a valid value for type Float32
+describe('util.checkConversionForErrors', () => {
   it('Float32Array has NaN', () => {
     expect(
-        () => util.checkConversionForNaN(
+        () => util.checkConversionForErrors(
             new Float32Array([1, 2, 3, NaN, 4, 255]), 'float32'))
-        .not.toThrowError();
+        .toThrowError();
   });
-  // NaN should not be present in other types. Error should be thrown.
+
+  it('Float32Array has Infinity', () => {
+    expect(
+        () => util.checkConversionForErrors(
+            new Float32Array([1, 2, 3, Infinity, 4, 255]), 'float32'))
+        .toThrowError();
+  });
+
   it('Int32Array has NaN', () => {
-    expect(() => util.checkConversionForNaN([1, 2, 3, 4, NaN], 'int32'))
+    expect(() => util.checkConversionForErrors([1, 2, 3, 4, NaN], 'int32'))
         .toThrowError();
   });
 });
@@ -334,5 +453,60 @@ describe('util.hasEncodingLoss', () => {
 
   it('bool to bool', () => {
     expect(util.hasEncodingLoss('bool', 'bool')).toBe(false);
+  });
+});
+
+describe('util.toNestedArray', () => {
+  it('2 dimensions', () => {
+    const a = new Float32Array([1, 2, 3, 4, 5, 6]);
+    expect(util.toNestedArray([2, 3], a)).toEqual([[1, 2, 3], [4, 5, 6]]);
+  });
+
+  it('3 dimensions (2x2x3)', () => {
+    const a = new Float32Array([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+    expect(util.toNestedArray([2, 2, 3], a)).toEqual([
+      [[0, 1, 2], [3, 4, 5]], [[6, 7, 8], [9, 10, 11]]
+    ]);
+  });
+
+  it('3 dimensions (3x2x2)', () => {
+    const a = new Float32Array([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+    expect(util.toNestedArray([3, 2, 2], a)).toEqual([
+      [[0, 1], [2, 3]], [[4, 5], [6, 7]], [[8, 9], [10, 11]]
+    ]);
+  });
+
+  it('invalid dimension', () => {
+    const a = new Float32Array([1, 2, 3]);
+    expect(() => util.toNestedArray([2, 2], a)).toThrowError();
+  });
+
+  it('tensor to nested array', async () => {
+    const x = tensor2d([1, 2, 3, 4], [2, 2]);
+    expect(util.toNestedArray(x.shape, await x.data())).toEqual([
+      [1, 2], [3, 4]
+    ]);
+  });
+
+  it('scalar to nested array', async () => {
+    const x = scalar(1);
+    expect(util.toNestedArray(x.shape, await x.data())).toEqual(1);
+  });
+
+  it('tensor with zero shape', () => {
+    const a = new Float32Array([0, 1]);
+    expect(util.toNestedArray([1, 0, 2], a)).toEqual([]);
+  });
+});
+
+describe('util.fetch', () => {
+  it('should call the platform fetch', () => {
+    spyOn(ENV.platform, 'fetch').and.callFake(() => {});
+
+    util.fetch('test/path', {method: 'GET'});
+
+    expect(ENV.platform.fetch).toHaveBeenCalledWith('test/path', {
+      method: 'GET'
+    });
   });
 });

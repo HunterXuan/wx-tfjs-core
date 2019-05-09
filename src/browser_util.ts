@@ -15,9 +15,14 @@
  * =============================================================================
  */
 
-const delayCallback: Function = typeof requestAnimationFrame !== 'undefined' ?
-    requestAnimationFrame :  // Browsers
-    setTimeout;              // Node.js or WeChat
+const delayCallback: Function = (() => {
+  if (typeof requestAnimationFrame !== 'undefined') {
+    return requestAnimationFrame;
+  } else if (typeof setImmediate !== 'undefined') {
+    return setImmediate;
+  }
+  return (f: Function) => f();  // no delays
+})();
 
 /**
  * Returns a promise that resolve when a requestAnimationFrame has completed.
@@ -32,4 +37,4 @@ function nextFrame(): Promise<void> {
   return new Promise<void>(resolve => delayCallback(() => resolve()));
 }
 
-export {nextFrame};
+export { nextFrame };

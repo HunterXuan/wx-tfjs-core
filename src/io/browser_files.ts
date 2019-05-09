@@ -23,11 +23,15 @@
 import {ENV} from '../environment';
 import {basename, concatenateArrayBuffers, getModelArtifactsInfoForJSON} from './io_utils';
 import {IORouter, IORouterRegistry} from './router_registry';
-import {IOHandler, ModelArtifacts, SaveResult, WeightsManifestConfig, WeightsManifestEntry} from './types';
+import {IOHandler, ModelArtifacts, ModelJSON, SaveResult, WeightsManifestConfig, WeightsManifestEntry} from './types';
 
 const DEFAULT_FILE_NAME_PREFIX = 'model';
 const DEFAULT_JSON_EXTENSION_NAME = '.json';
 const DEFAULT_WEIGHT_DATA_EXTENSION_NAME = '.weights.bin';
+
+function defer<T>(f: () => T): Promise<T> {
+  return new Promise(resolve => setTimeout(resolve)).then(f);
+}
 
 export class BrowserDownloads implements IOHandler {
   private readonly modelTopologyFileName: string;
@@ -38,7 +42,7 @@ export class BrowserDownloads implements IOHandler {
   static readonly URL_SCHEME = 'downloads://';
 
   constructor(fileNamePrefix?: string) {
-    if (!ENV.get('IS_BROWSER')) {
+    if (!ENV.getBool('IS_BROWSER')) {
       // TODO(cais): Provide info on what IOHandlers are available under the
       //   current environment.
       throw new Error(
@@ -71,8 +75,11 @@ export class BrowserDownloads implements IOHandler {
         paths: ['./' + this.weightDataFileName],
         weights: modelArtifacts.weightSpecs
       }];
-      const modelTopologyAndWeightManifest = {
+      const modelTopologyAndWeightManifest: ModelJSON = {
         modelTopology: modelArtifacts.modelTopology,
+        format: modelArtifacts.format,
+        generatedBy: modelArtifacts.generatedBy,
+        convertedBy: modelArtifacts.convertedBy,
         weightsManifest
       };
       const modelTopologyAndWeightManifestURL =
@@ -86,9 +93,10 @@ export class BrowserDownloads implements IOHandler {
                                                    this.jsonAnchor;
       jsonAnchor.download = this.modelTopologyFileName;
       jsonAnchor.href = modelTopologyAndWeightManifestURL;
-      // Trigger downloads by calling the `click` methods on the download
-      // anchors.
-      jsonAnchor.click();
+      // Trigger downloads by evoking a click event on the download anchors.
+      // When multiple downloads are started synchronously, Firefox will only
+      // save the last one.
+      await defer(() => jsonAnchor.dispatchEvent(new MouseEvent('click')));
 
       if (modelArtifacts.weightData != null) {
         const weightDataAnchor = this.weightDataAnchor == null ?
@@ -96,7 +104,8 @@ export class BrowserDownloads implements IOHandler {
             this.weightDataAnchor;
         weightDataAnchor.download = this.weightDataFileName;
         weightDataAnchor.href = weightsURL;
-        weightDataAnchor.click();
+        await defer(
+            () => weightDataAnchor.dispatchEvent(new MouseEvent('click')));
       }
 
       return {modelArtifactsInfo: getModelArtifactsInfoForJSON(modelArtifacts)};
@@ -124,8 +133,8 @@ class BrowserFiles implements IOHandler {
       const jsonReader = new FileReader();
       jsonReader.onload = (event: Event) => {
         // tslint:disable-next-line:no-any
-        const modelJSON = JSON.parse((event.target as any).result);
-        const modelTopology = modelJSON.modelTopology as {};
+        const modelJSON = JSON.parse((event.target as any).result) as ModelJSON;
+        const modelTopology = modelJSON.modelTopology;
         if (modelTopology == null) {
           reject(new Error(
               `modelTopology field is missing from file ${jsonFile.name}`));
@@ -136,8 +145,7 @@ class BrowserFiles implements IOHandler {
           resolve({modelTopology});
         }
 
-        const weightsManifest =
-            modelJSON.weightsManifest as WeightsManifestConfig;
+        const weightsManifest = modelJSON.weightsManifest;
         if (weightsManifest == null) {
           reject(new Error(
               `weightManifest field is missing from file ${jsonFile.name}`));
@@ -231,7 +239,7 @@ class BrowserFiles implements IOHandler {
 }
 
 export const browserDownloadsRouter: IORouter = (url: string|string[]) => {
-  if (!ENV.get('IS_BROWSER')) {
+  if (!ENV.getBool('IS_BROWSER')) {
     return null;
   } else {
     if (!Array.isArray(url) && url.startsWith(BrowserDownloads.URL_SCHEME)) {
@@ -253,7 +261,7 @@ IORouterRegistry.registerSaveRouter(browserDownloadsRouter);
  * const model = tf.sequential();
  * model.add(tf.layers.dense(
  *     {units: 1, inputShape: [10], activation: 'sigmoid'}));
- * const saveResult = await model.save('downloads://mymodel'));
+ * const saveResult = await model.save('downloads://mymodel');
  * // This will trigger downloading of two files:
  * //   'mymodel.json' and 'mymodel.weights.bin'.
  * console.log(saveResult);
@@ -275,7 +283,14 @@ IORouterRegistry.registerSaveRouter(browserDownloadsRouter);
  * @param config Additional configuration for triggering downloads.
  * @returns An instance of `BrowserDownloads` `IOHandler`.
  */
-/** @doc {heading: 'Models', subheading: 'Loading', namespace: 'io'} */
+/**
+ * @doc {
+ *   heading: 'Models',
+ *   subheading: 'Loading',
+ *   namespace: 'io',
+ *   ignoreCI: true
+ * }
+ */
 export function browserDownloads(fileNamePrefix = 'model'): IOHandler {
   return new BrowserDownloads(fileNamePrefix);
 }
@@ -313,7 +328,14 @@ export function browserDownloads(fileNamePrefix = 'model'): IOHandler {
  *     topology will be loaded from the JSON file above.
  * @returns An instance of `Files` `IOHandler`.
  */
-/** @doc {heading: 'Models', subheading: 'Loading', namespace: 'io'} */
+/**
+ * @doc {
+ *   heading: 'Models',
+ *   subheading: 'Loading',
+ *   namespace: 'io',
+ *   ignoreCI: true
+ * }
+ */
 export function browserFiles(files: File[]): IOHandler {
   return new BrowserFiles(files);
 }

@@ -26,6 +26,17 @@ export interface ShapeMap {
   R6: [number, number, number, number, number, number];
 }
 
+/** @docalias number[] */
+export interface ArrayMap {
+  R0: number;
+  R1: number[];
+  R2: number[][];
+  R3: number[][][];
+  R4: number[][][][];
+  R5: number[][][][][];
+  R6: number[][][][][][];
+}
+
 export interface DataTypeMap {
   float32: Float32Array;
   int32: Int32Array;
@@ -120,8 +131,10 @@ export function sumOutType(type: DataType): DataType {
 }
 
 /** @docalias TypedArray|Array */
-export type TensorLike = TypedArray|number|boolean|string|RegularArray<number>|
-    RegularArray<boolean>|RegularArray<string>;
+export type TensorLike =
+    TypedArray|number|boolean|string|RecursiveArray<number|number[]|TypedArray>|
+    RecursiveArray<boolean>|RecursiveArray<string>;
+export type ScalarLike = number|boolean|string;
 /** @docalias TypedArray|Array */
 export type TensorLike1D = TypedArray|number[]|boolean[]|string[];
 /** @docalias TypedArray|Array */

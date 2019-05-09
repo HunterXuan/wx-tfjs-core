@@ -15,13 +15,14 @@
  * =============================================================================
  */
 
+import {ENGINE} from '../engine';
 import {ENV} from '../environment';
 import {Scalar, Tensor, Tensor1D, Tensor2D, Tensor3D, Tensor4D, Tensor5D, Tensor6D} from '../tensor';
 import {convertToTensor, inferShape} from '../tensor_util_env';
 import {TensorLike, TensorLike1D, TensorLike2D, TensorLike3D, TensorLike4D, TensorLike5D, TensorLike6D, TypedArray} from '../types';
 import {DataType, Rank, ShapeMap} from '../types';
-import {assertNonNull, assertShapesMatch, flatten, getArrayFromDType, inferDtype, isTypedArray, makeOnesTypedArray, makeZerosTypedArray, sizeFromShape, toTypedArray} from '../util';
-import {complex} from './complex_ops';
+import {assert, assertNonNegativeIntegerDimensions, assertNonNull, flatten, inferDtype, isTypedArray, makeOnesTypedArray, makeZerosTypedArray, sizeFromShape, toTypedArray} from '../util';
+import {complex, imag, real} from './complex_ops';
 import {op} from './operation';
 
 /**
@@ -68,20 +69,39 @@ function tensor<R extends Rank>(
         'an array of numbers/booleans/strings, or a TypedArray');
   }
   const inferredShape = inferShape(values);
-  if (shape != null && inferredShape.length !== 1) {
-    assertShapesMatch(
-        shape, inferredShape,
-        `Error creating a new Tensor. ` +
-            `Inferred shape (${inferredShape}) does not match the ` +
-            `provided shape (${shape}). `);
+  if (shape != null) {
+    assertNonNegativeIntegerDimensions(shape);
+
+    const providedSize = sizeFromShape(shape);
+    const inferredSize = sizeFromShape(inferredShape);
+    assert(
+        providedSize === inferredSize,
+        () =>
+            `Based on the provided shape, [${shape}], the tensor should have ` +
+            `${providedSize} values but has ${inferredSize}`);
+
+    for (let i = 0; i < inferredShape.length; ++i) {
+      const inferred = inferredShape[i];
+      const flatDimsDontMatch = i === inferredShape.length - 1 ?
+          inferred !== sizeFromShape(shape.slice(i)) :
+          true;
+      assert(
+          inferredShape[i] === shape[i] || !flatDimsDontMatch,
+          () => `Error creating a new Tensor. Inferred shape ` +
+              `(${inferredShape}) does not match the provided ` +
+              `shape (${shape}). `);
+    }
   }
+
   if (!isTypedArray(values) && !Array.isArray(values)) {
     values = [values] as number[];
   }
+
   shape = shape || inferredShape;
-  values = dtype !== 'string' ? toTypedArray(values, dtype, ENV.get('DEBUG')) :
-                                flatten(values) as string[];
-  return Tensor.make(shape, {values}, dtype);
+  values = dtype !== 'string' ?
+      toTypedArray(values, dtype, ENV.getBool('DEBUG')) :
+      flatten(values as string[]) as string[];
+  return Tensor.make(shape, {values: values as TypedArray}, dtype);
 }
 
 /**
@@ -337,7 +357,8 @@ function tensor6d(
   const inferredShape = inferShape(values);
   if (inferredShape.length !== 6 && inferredShape.length !== 1) {
     throw new Error(
-        'tensor6d() requires values to be number[][][][] or flat/TypedArray');
+        'tensor6d() requires values to be number[][][][][][] or ' +
+        'flat/TypedArray');
   }
   if (inferredShape.length === 1 && shape == null) {
     throw new Error(
@@ -365,7 +386,7 @@ function ones<R extends Rank>(
     shape: ShapeMap[R], dtype: DataType = 'float32'): Tensor<R> {
   if (dtype === 'complex64') {
     const real = ones(shape, 'float32');
-    const imag = ones(shape, 'float32');
+    const imag = zeros(shape, 'float32');
     return complex(real, imag);
   }
   const values = makeOnesTypedArray(sizeFromShape(shape), dtype);
@@ -410,10 +431,7 @@ function zeros<R extends Rank>(
 /** @doc {heading: 'Tensors', subheading: 'Creation'} */
 function fill<R extends Rank>(
     shape: ShapeMap[R], value: number|string, dtype?: DataType): Tensor<R> {
-  dtype = dtype || inferDtype(value);
-  const values = getArrayFromDType(dtype, sizeFromShape(shape)) as TypedArray;
-  values.fill(value as number);
-  return Tensor.make(shape, {values}, dtype);
+  return ENGINE.runKernel(backend => backend.fill(shape, value, dtype), {});
 }
 
 /**
@@ -429,7 +447,12 @@ function fill<R extends Rank>(
 /** @doc {heading: 'Tensors', subheading: 'Creation'} */
 function onesLike_<T extends Tensor>(x: T|TensorLike): T {
   const $x = convertToTensor(x, 'x', 'onesLike');
-  return ones($x.shape, $x.dtype) as T;
+  if ($x.dtype === 'complex64') {
+    const r = onesLike(real($x));
+    const i = zerosLike(imag($x));
+    return complex(r, i);
+  }
+  return ENGINE.runKernel(backend => backend.onesLike($x), {$x}, null) as T;
 }
 
 /**
@@ -446,7 +469,7 @@ function onesLike_<T extends Tensor>(x: T|TensorLike): T {
 /** @doc {heading: 'Tensors', subheading: 'Creation'} */
 function zerosLike_<T extends Tensor>(x: T|TensorLike): T {
   const $x = convertToTensor(x, 'x', 'zerosLike');
-  return zeros($x.shape, $x.dtype) as T;
+  return ENGINE.runKernel(backend => backend.zerosLike($x), {$x}, null) as T;
 }
 
 /**
@@ -461,19 +484,11 @@ function zerosLike_<T extends Tensor>(x: T|TensorLike): T {
  */
 /** @doc {heading: 'Tensors', subheading: 'Creation'} */
 function linspace(start: number, stop: number, num: number): Tensor1D {
-  if (num === 0) {
-    throw new Error('Cannot request zero samples');
+  if (num <= 0) {
+    throw new Error('The number of values should be positive.');
   }
-
-  const step = (stop - start) / (num - 1);
-
-  const values = makeZerosTypedArray(num, 'float32');
-  values[0] = start;
-  for (let i = 1; i < values.length; i++) {
-    values[i] = values[i - 1] + step;
-  }
-
-  return tensor1d(values, 'float32');
+  return ENGINE.runKernel(backend => backend.linspace(start, stop, num),
+    {}) as Tensor1D;
 }
 
 /**
